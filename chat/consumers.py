@@ -1,8 +1,8 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
-from asgiref.sync import async_to_sync
-from .models import Message
 
+from channels.db import database_sync_to_async
+from channels.generic.websocket import AsyncWebsocketConsumer
+from .models import Message
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
@@ -31,13 +31,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         sender = text_data_json['sender']
         receiver = text_data_json['receiver']
 
-        # Save the message to your Django model
-        message = Message(
-            sender=sender,
-            receiver=receiver,
-            message=message_text
-        )
-        await async_to_sync(message.save)()
+        # Save the message to your Django model and retrieve timestamp
+        timestamp = await self.save_message(sender, receiver, message_text)
 
         # Send message to room group
         await self.channel_layer.group_send(
@@ -47,9 +42,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 'message': message_text,
                 'sender': sender,
                 'receiver': receiver,
-                'timestamp': str(message.timestamp)  # serialize timestamp
+                'timestamp': str(timestamp)  # serialize timestamp
             }
         )
+
+    @database_sync_to_async
+    def save_message(self, sender, receiver, message_text):
+        message = Message.objects.create(
+            sender=sender,
+            receiver=receiver,
+            message=message_text
+        )
+        return message.timestamp
 
     # Receive message from room group
     async def chat_message(self, event):
